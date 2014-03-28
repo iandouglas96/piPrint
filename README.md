@@ -12,9 +12,13 @@ piPrint is currently under heavy development.  It seems to be working fairly wel
 
 ## Documentation
 Put the files contained in the server directory on the pi, then run
+
     sudo python server.py
+    
 It isn't a bad idea to add this to your .profile to run on startup
 
 In piPrintControl.py, change the top two ip addresses to the address of your pi, then run
+
     python piPrintControl.py
+    
 You will then be able to remotely control the printer over the local network.
