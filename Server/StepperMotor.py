@@ -1,41 +1,25 @@
-import RPi.GPIO as GPIO
-import time
+import wiringpi2
 
 class Stepper:
-    
-    direction=1
-    position=0
-    
     stepPin=0 #pin numbers
     dirPin=0
     def __init__(self,stepPin,dirPin):
-    #initial a Bipolar_Stepper_Moter objects by assigning the pins
-    
-        GPIO.setmode(GPIO.BOARD)
+    	#initial a Bipolar_Stepper_Moter objects by assigning the pins
+        wiringpi2.wiringPiSetupPhys()
         
         self.stepPin=stepPin
         self.dirPin=dirPin
         
-        GPIO.setup(self.stepPin,GPIO.OUT)
-        GPIO.setup(self.dirPin,GPIO.OUT)
-        print "Stepper Configured"
-        self.direction=0      
-        self.position=0
+        wiringpi2.pinMode(self.stepPin,1)
+        wiringpi2.pinMode(self.dirPin,1)
+        print "Stepper Configured"   
         
-    def move(self, direction1, steps, delay=0.2):
-        self.direction = direction1
-	if direction1==1:
-	    GPIO.output(self.dirPin, 1);
-	else:
-            GPIO.output(self.dirPin, 0);
-        for i in range(steps):         
-            GPIO.output(self.stepPin,0)
-            time.sleep(delay/2.0)
-            GPIO.output(self.stepPin,1)
-            time.sleep(delay/2.0)
-            self.position += direction1
-
-    def unhold(self):
-        GPIO.output(self.dirPin,0)
-        GPIO.output(self.stepPin,0)
-        
+    def move(self, direction1, delay):
+		if direction1==1:
+			wiringpi2.digitalWrite(self.dirPin, 1);
+		else:
+			wiringpi2.digitalWrite(self.dirPin, 0);    
+		wiringpi2.digitalWrite(self.stepPin,0)
+		wiringpi2.delayMicroseconds(int(delay//2))
+		wiringpi2.digitalWrite(self.stepPin,1)
+		wiringpi2.delayMicroseconds(int(delay//2))

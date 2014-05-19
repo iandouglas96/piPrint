@@ -1,3 +1,5 @@
+#!/usr/bin/env python
+
 import xmlrpclib
 import time
 import Tkinter, tkFont, tkFileDialog, ttk
@@ -5,8 +7,8 @@ import thread
 from os import path
 from socket import error as socket_error
 
-proxy = xmlrpclib.ServerProxy("http://192.168.1.76:8000/")
-getinfoproxy = xmlrpclib.ServerProxy("http://192.168.1.76:8000/") #Use 2 proxies, one for sending, one for getting
+proxy = xmlrpclib.ServerProxy("http://192.168.1.90:8000/")
+getinfoproxy = xmlrpclib.ServerProxy("http://192.168.1.90:8000/") #Use 2 proxies, one for sending, one for getting
 
 file_opt = options = {}
 options['defaultextension'] = '.txt'
@@ -16,6 +18,8 @@ options['title'] = 'Choose file to upload'
 
 filepath = "./"
 filename = "."
+
+startTime = 0
 
 def get_path():
     global filepath
@@ -28,14 +32,18 @@ def show_temp():
 	while True:
 		try:
 			data = getinfoproxy.get_info()
-			temptext.set(str(data[0])+"C")
+			temptext.set(str("%.2f" % data[0])+"C")
 			timetext.set(time.strftime("%T"))
 			if (data[2] == 0):
 				progress.set(0)
 				progtext.set("Not Printing")
 			else:
  				progress.set((data[1]*100)//data[2])
-				progtext.set("Line "+str(data[1])+"/"+str(data[2])+" "+str((data[1]*100)//data[2])+"%")
+ 				dt = time.time()-startTime
+ 				timeRemaining = dt*float(data[2])/data[1]-dt
+ 				m,s = divmod(timeRemaining, 60)
+ 				h,m = divmod(m, 60)
+				progtext.set("Line "+str(data[1])+"/"+str(data[2])+" "+str((data[1]*100)//data[2])+"%%  Time remaining: %d:%02d" % (h,m))
 			if (data[3]): #Are we heating?
 				templabel.configure(fg = "red")
 			else:
@@ -49,11 +57,11 @@ def set_temp():
 		print "Error"
 		
 def move_x(dir):
-	if not proxy.x_step(10*dir):
+	if not proxy.x_step(20*dir, 0.01):
 		print "Error"
 	
 def move_y(dir):
-	if not proxy.y_step(10*dir):
+	if not proxy.y_step(20*dir, 0.01):
 		print "Error"
 	
 def move_z(dir):
@@ -61,7 +69,7 @@ def move_z(dir):
 		print "Error"
 	
 def move_e(dir):
-	if not proxy.e_step(10*dir):
+	if not proxy.e_step(100*dir, 0.01):
 		print "Error"
 	
 def upload_file():
@@ -70,7 +78,9 @@ def upload_file():
 	proxy.server_receive_file(filename,binary_data)
 
 def start_print():
+	global startTime
 	proxy.print_file(filename)
+	startTime = time.time()
 	
 def stop_print():
 	proxy.stop_print()

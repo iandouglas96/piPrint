@@ -1,4 +1,4 @@
-# piPrint (v0.1a)
+# piPrint (v0.2a)
 ## Run your 3D Printer with only a Raspberry Pi
 
 Ian D. Miller
@@ -15,7 +15,7 @@ Put the files contained in the server directory on the pi, then run
 
     sudo python server.py
     
-It isn't a bad idea to add this to your .profile to run on startup
+It isn't a bad idea to add this to your .profile to run on startup.
 
 In piPrintControl.py, change the top two ip addresses to the address of your pi, then run
 
