@@ -25,11 +25,18 @@ wiringpi2.pinMode(heatpin, 1)
 wiringpi2.pinMode(fanpin, 1)
 wiringpi2.digitalWrite(fanpin, 0) #Fan off
 TEMP=-1
+
 #These values convert from steps to mm
 xcalib=4*1000/200.0  #steps/mm
 ycalib=4*1000/200.0  #steps/mm
 zcalib=10000/100.0 #steps/mm
 ecalib=4*10000/195.0  #steps/mm(pulled extrusion)
+
+#Acceleration
+jerk = 30.0 #mm/sec start speed, cannot be 0
+accel = 1000.0 #mm/sec/sec
+
+#Internal settings
 zadjust=0
 temp=0
 lineNum=0
@@ -60,65 +67,102 @@ def sign(a): #return the sign of number a
 		return 0;
 
 
-def Vertical_Motor_Step(stepper3, step3, speed):
+def Vertical_Motor_Step(stepper3, dz, speed):
 	"""Much simpler this one is.  Just move it."""
-	global pos
-	dir3=-sign(step3)
-	step3=abs(step3)
-	for i in range(0, step3):
+	#global pos
+	dir3=-sign(dz)
+	dz=abs(dz)
+	for i in range(0, dz):
 		stepper3.move(dir3,1000000.0/speed);
 	#print pos
 	return 0;
 
-def Horizontal_Motor_Step(stepper1, step1, stepper2, step2, stepper3, step3, T):
+def Horizontal_Motor_Step(stepper1, dx, stepper2, dy, stepper3, de, f):
 #   TODO extrusion rate
 #   control stepper motor 1 and 2 simultaneously
 #   stepper1 and stepper2 are objects of StepperMotor class
-#   direction is reflected in the polarity of [step1] or [step2]
+#   direction is reflected in the polarity of [dt] or [dy]
+	dir1=sign(dx);  #get dirction from the polarity of argument [step]
+	dir2=sign(dy);
+	dir3=-sign(de); #direction backwards for stepper
 
-	dir1=sign(step1);  #get dirction from the polarity of argument [step]
-	dir2=sign(step2);
-	dir3=-sign(step3); #direction backwards for stepper
-
-	step1=int(abs(step1));
-	step2=int(abs(step2));
-	step3=int(abs(step3));
+	dx=int(abs(dx));
+	dy=int(abs(dy));
+	de=int(abs(de));
 
 # [total_micro_step] total number of micro steps
-# stepper motor 1 will move one step every [micro_step1] steps
-# stepper motor 2 will move one step every [micro_step2] steps
-# So [total_mirco_step]=[micro_step1]*[step1] if step1<>0;  [total_micro_step]=[micro_step2]*[step2] if step2<>0 
-	if step1==0 and step2==0 and step3==0:
+# stepper motor 1 will move one step every [micro_dt] steps
+# stepper motor 2 will move one step every [micro_dy] steps
+# So [total_mirco_step]=[micro_dt]*[dt] if dt<>0;  [total_micro_step]=[micro_dy]*[dy] if dy<>0 
+	if dx==0 and dy==0 and de==0:
 		return 0;
 	else:
-		total_micro_step=step1+step2+step3
-		micro_step1=total_micro_step+5
-		micro_step2=total_micro_step+5
-		micro_step3=total_micro_step+5
+		totalSteps=dx+dy+de
+		micro_dx=totalSteps+5
+		micro_dy=totalSteps+5
+		micro_de=totalSteps+5
 
-		if step1!=0: micro_step1=total_micro_step/float(step1);
-		if step2!=0: micro_step2=total_micro_step/float(step2);
-		if step3!=0: micro_step3=total_micro_step/float(step3);
+		if dx!=0: micro_dx=totalSteps/float(dx);
+		if dy!=0: micro_dy=totalSteps/float(dy);
+		if de!=0: micro_de=totalSteps/float(de);
+	
+	D = sqrt((dx/xcalib)**2+(dy/ycalib)**2)
+	T = D/f #Time in sec
+	if T == 0 and de != 0:
+		T = (abs(de)/ecalib)/(f)	
+
+	dtMax = (T*1000000.0)/totalSteps #Convert to us
+	
+	if (dx != 0 or dy != 0) and f>jerk:
+		dt0 = (D*1000000.0)/(totalSteps*jerk)
+		accelDist = (f**2 - jerk**2)/(2*accel)
+		accelSteps = accelDist*(totalSteps/D)
+		dtdt = (dt0-dtMax)/accelSteps
+	else:
+		dt0 = dtMax
+		dtdt = 0
 		
-	dt=(T*1000000.0)/(step1+step2+step3) #Convert to us
-
+	dt = dt0
+	step = 0
+	stepsNeeded = 0
 	#xmoved, ymoved, emoved= 0, 0, 0
 	# print 'Total iteration steps =',total_micro_step
-	for i in range(0, total_micro_step):
-		if (step1!=0 and i % micro_step1<1):#motor 1 need to turn one step
+	for i in range(0, totalSteps):
+		if (dx!=0 and i % micro_dx<1):#motor 1 need to turn one step
 			stepper1.move(dir1,dt);
+			step += 1
+			if (dt > dtMax and totalSteps//step >= 2):
+				dt -= dtdt
+			elif (totalSteps-step < stepsNeeded):
+				dt += dtdt
+			elif stepsNeeded == 0:
+				stepsNeeded = step
 			#xmoved+=1
 			
-		if (step2!=0 and i % micro_step2<1):#motor 2 need to turn one step
+		if (dy!=0 and i % micro_dy<1):#motor 2 need to turn one step
 			stepper2.move(dir2,dt);
+			step += 1
+			if (dt > dtMax and totalSteps//step >= 2):
+				dt -= dtdt
+			elif (totalSteps-step < stepsNeeded):
+				dt += dtdt
+			elif stepsNeeded == 0:
+				stepsNeeded = step
 			#ymoved+=1
 
-		if (step3!=0 and i % micro_step3<1):
+		if (de!=0 and i % micro_de<1):
 			stepper3.move(dir3,dt);
+			step += 1
+			if (dt > dtMax and totalSteps//step >= 2):
+				dt -= dtdt
+			elif (totalSteps-step < stepsNeeded):
+				dt += dtdt
+			elif stepsNeeded == 0:
+				stepsNeeded = step
 			#emoved+=1
 	
 	# print xmoved, ymoved, emoved
-# 	print step1, step2, step3
+# 	print dt, dy, de
 	return 0;
 	
 def get_adc(channel):
@@ -192,12 +236,13 @@ def parse_line(line):
 				dy=int(round(float(word[1:])*ycalib, 0))
 			if word[0]=='Z':
 				dz=int(round(float(word[1:])*zcalib, 0))
+			if word[0]=='F':
+				f=float(word[1:])
 		if absolute:
 			dx-=pos[0]; dy-=pos[1]; dz-=pos[2];
 
-		T=sqrt(dx**2+dy**2+dz**2)/1000
 		pos[0]+=dx; pos[1]+=dy; pos[2]+=dz
-		Horizontal_Motor_Step(x, dx, y, dy, e, 0, T)
+		Horizontal_Motor_Step(x, dx, y, dy, e, 0, f/60.0)
 		Vertical_Motor_Step(z, dz, 1000)
 
 	elif words[0]=='G1':
@@ -223,13 +268,8 @@ def parse_line(line):
 		if absolute:
 			dx-=pos[0]; dy-=pos[1]; dz-=pos[2]; de-=pos[3];
 
-		T = sqrt((dx/xcalib)**2+(dy/ycalib)**2)/(f/60.0) #Time in sec
-		#print T
-		if T == 0 and de != 0:
-			T = (abs(de)/ecalib)/(f/60.0)
-
 		pos[0]+=dx; pos[1]+=dy; pos[2]+=dz; pos[3]+=de;
-		Horizontal_Motor_Step(x, dx, y, dy, e, de, T)
+		Horizontal_Motor_Step(x, dx, y, dy, e, de, f/60.0)
 		Vertical_Motor_Step(z, dz, 1000)
 
 	elif words[0]=='G28':
@@ -293,12 +333,12 @@ def actually_adjust():
 		#print 'I adjusted the z axis '+str(zadjust)+' steps!'
 		zadjust = 0 
 
-def x_step(xsteps, T):
-	Horizontal_Motor_Step(x, xsteps, y, 0, e, 0, T)
+def x_step(xsteps, f):
+	Horizontal_Motor_Step(x, xsteps, y, 0, e, 0, f)
 	return True
 	
-def y_step(ysteps, T):
-	Horizontal_Motor_Step(x, 0, y, ysteps, e, 0, T)
+def y_step(ysteps, f):
+	Horizontal_Motor_Step(x, 0, y, ysteps, e, 0, f)
 	return True
 	
 def z_step(zsteps):
@@ -309,8 +349,8 @@ def z_step(zsteps):
 		zadjust = zsteps
 	return True
 	
-def e_step(esteps, T):
-	Horizontal_Motor_Step(x, 0, y, 0, e, esteps, T)
+def e_step(esteps, f):
+	Horizontal_Motor_Step(x, 0, y, 0, e, esteps, f)
 	return True
 
 def set_temp(temptoset):
@@ -340,6 +380,7 @@ abs_z_steps=0
 #while temp < TEMP:
 #	time.sleep(1);
 
+#For Debugging
 #hasGCode= raw_input("Have GCode? (y/n) ")
 # if not args.file:
 # #if hasGCode=="n":
@@ -408,4 +449,3 @@ server.register_function(server_receive_file, "server_receive_file")
 server.register_function(remote_print, "print_file")
 server.register_function(stop_print, "stop_print")
 server.serve_forever()
-
