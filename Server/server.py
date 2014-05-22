@@ -27,13 +27,13 @@ wiringpi2.digitalWrite(fanpin, 0) #Fan off
 TEMP=-1
 
 #These values convert from steps to mm
-xcalib=4*1000/200.0  #steps/mm
-ycalib=4*1000/200.0  #steps/mm
+xcalib=8*1000/200.0  #steps/mm
+ycalib=8*1000/200.0  #steps/mm
 zcalib=10000/100.0 #steps/mm
 ecalib=4*10000/195.0  #steps/mm(pulled extrusion)
 
 #Acceleration
-jerk = 30.0 #mm/sec start speed, cannot be 0
+jerkG = 25.0 #mm/sec start speed, cannot be 0
 accel = 1000.0 #mm/sec/sec
 
 #Internal settings
@@ -43,6 +43,18 @@ lineNum=0
 totalLines=0
 isHeating=False
 isPrinting=False
+
+nextdx = 0
+nextdy = 0
+nextdz = 0
+nextde = 0
+nextf = 1200.0
+dx = 0
+dy = 0
+dz = 0
+de = 0
+f = 1200.0
+dt0 = 1000
 
 #port = serial.Serial("/dev/ttyAMA0", baudrate=38400, timeout=3.0) #Open serial connection to ADC
 
@@ -65,7 +77,15 @@ def sign(a): #return the sign of number a
 		return -1;
 	else:
 		return 0;
-
+		
+def dot(x1,y1,x2,y2):
+	mag = sqrt(x1**2 + y1**2)*sqrt(x2**2 + y2**2)
+	if mag == 0:
+		return 0
+	dot = float(x1*x2+y1*y2)
+	if dot < 0:
+		return 0
+	return dot/mag
 
 def Vertical_Motor_Step(stepper3, dz, speed):
 	"""Much simpler this one is.  Just move it."""
@@ -78,6 +98,7 @@ def Vertical_Motor_Step(stepper3, dz, speed):
 	return 0;
 
 def Horizontal_Motor_Step(stepper1, dx, stepper2, dy, stepper3, de, f):
+	global dt0
 #   TODO extrusion rate
 #   control stepper motor 1 and 2 simultaneously
 #   stepper1 and stepper2 are objects of StepperMotor class
@@ -112,54 +133,49 @@ def Horizontal_Motor_Step(stepper1, dx, stepper2, dy, stepper3, de, f):
 		T = (abs(de)/ecalib)/(f)	
 
 	dtMax = (T*1000000.0)/totalSteps #Convert to us
+	jerk = 1+jerkG + dot(nextdx,nextdy,dir1*dx,dir2*dy)*(f-jerkG) #Add one, since not / by 0
 	
 	if (dx != 0 or dy != 0) and f>jerk:
-		dt0 = (D*1000000.0)/(totalSteps*jerk)
+		dtf = (D*1000000.0)/(totalSteps*jerk)
 		accelDist = (f**2 - jerk**2)/(2*accel)
 		accelSteps = accelDist*(totalSteps/D)
-		dtdt = (dt0-dtMax)/accelSteps
+		dtdt = (dtf-dtMax)/accelSteps
 	else:
 		dt0 = dtMax
 		dtdt = 0
-		
+		accelSteps = 0
+	
 	dt = dt0
 	step = 0
-	stepsNeeded = 0
 	#xmoved, ymoved, emoved= 0, 0, 0
 	# print 'Total iteration steps =',total_micro_step
 	for i in range(0, totalSteps):
 		if (dx!=0 and i % micro_dx<1):#motor 1 need to turn one step
 			stepper1.move(dir1,dt);
 			step += 1
-			if (dt > dtMax and totalSteps//step >= 2):
-				dt -= dtdt
-			elif (totalSteps-step < stepsNeeded):
-				dt += dtdt
-			elif stepsNeeded == 0:
-				stepsNeeded = step
 			#xmoved+=1
 			
 		if (dy!=0 and i % micro_dy<1):#motor 2 need to turn one step
 			stepper2.move(dir2,dt);
 			step += 1
-			if (dt > dtMax and totalSteps//step >= 2):
-				dt -= dtdt
-			elif (totalSteps-step < stepsNeeded):
-				dt += dtdt
-			elif stepsNeeded == 0:
-				stepsNeeded = step
 			#ymoved+=1
 
 		if (de!=0 and i % micro_de<1):
 			stepper3.move(dir3,dt);
 			step += 1
-			if (dt > dtMax and totalSteps//step >= 2):
-				dt -= dtdt
-			elif (totalSteps-step < stepsNeeded):
-				dt += dtdt
-			elif stepsNeeded == 0:
-				stepsNeeded = step
 			#emoved+=1
+		
+		if (totalSteps-step < accelSteps):
+			if (dt < dtf+dtdt):
+				dt += dtdt
+			else:
+				dt = dtf
+		elif (dt > dtMax+dtdt):
+			dt -= dtdt
+		else:
+			dt = dtMax
+				
+	dt0 = dt
 	
 	# print xmoved, ymoved, emoved
 # 	print dt, dy, de
@@ -217,7 +233,7 @@ def get_info():
 	return [temp, lineNum, totalLines, isHeating]
 
 def parse_line(line):
-	global pos, f, absolute, TEMP, temp
+	global pos, f, absolute, TEMP, temp, nextdx, nextdy, nextdz, nextde, nextf, dx, dy, dz, de, f
 
 	words=line.split()
 	if len(words)==0:
@@ -225,52 +241,54 @@ def parse_line(line):
 	elif words[0]=='G0':
 		#Fast move, no extrude
 		if absolute:
-			dx,dy,dz=pos[0],pos[1],pos[2]
+			nextdx,nextdy,nextdz=pos[0],pos[1],pos[2]
 		else:
-			dx,dy,dz=0,0,0
+			nextdx,nextdy,nextdz=0,0,0
 
 		for word in words:
 			if word[0]=='X':
-				dx=int(round(float(word[1:])*xcalib, 0))
+				nextdx=int(round(float(word[1:])*xcalib, 0))
 			if word[0]=='Y':
-				dy=int(round(float(word[1:])*ycalib, 0))
+				nextdy=int(round(float(word[1:])*ycalib, 0))
 			if word[0]=='Z':
-				dz=int(round(float(word[1:])*zcalib, 0))
+				nextdz=int(round(float(word[1:])*zcalib, 0))
 			if word[0]=='F':
-				f=float(word[1:])
+				nextf=float(word[1:])
 		if absolute:
-			dx-=pos[0]; dy-=pos[1]; dz-=pos[2];
+			nextdx-=pos[0]; nextdy-=pos[1]; nextdz-=pos[2];
 
-		pos[0]+=dx; pos[1]+=dy; pos[2]+=dz
+		pos[0]+=nextdx; pos[1]+=nextdy; pos[2]+=nextdz
 		Horizontal_Motor_Step(x, dx, y, dy, e, 0, f/60.0)
 		Vertical_Motor_Step(z, dz, 1000)
+		dx, dy, dz, de, f = nextdx, nextdy, nextdz, 0, nextf
 
 	elif words[0]=='G1':
 		#Move while extruding
 
 		if absolute:
-			dx,dy,dz,de=pos[0],pos[1],pos[2],pos[3]
+			nextdx,nextdy,nextdz,nextde=pos[0],pos[1],pos[2],pos[3]
 		else:
-			dx,dy,dz,de=0 ,0 ,0 ,0
+			nextdx,nextdy,nextdz,nextde=0 ,0 ,0 ,0
 		
 		T=0
 		for word in words:
 			if word[0]=='X':
-				dx=int(round(float(word[1:])*xcalib, 0))
+				nextdx=int(round(float(word[1:])*xcalib, 0))
 			if word[0]=='Y':
-				dy=int(round(float(word[1:])*ycalib, 0))
+				nextdy=int(round(float(word[1:])*ycalib, 0))
 			if word[0]=='Z':
-				dz=int(round(float(word[1:])*zcalib, 0))
+				nextdz=int(round(float(word[1:])*zcalib, 0))
 			if word[0]=='E':
-				de=int(round(float(word[1:])*ecalib, 0))
+				nextde=int(round(float(word[1:])*ecalib, 0))
 			if word[0]=='F':
-				f=float(word[1:])
+				nextf=float(word[1:])
 		if absolute:
-			dx-=pos[0]; dy-=pos[1]; dz-=pos[2]; de-=pos[3];
+			nextdx-=pos[0]; nextdy-=pos[1]; nextdz-=pos[2]; nextde-=pos[3];
 
-		pos[0]+=dx; pos[1]+=dy; pos[2]+=dz; pos[3]+=de;
+		pos[0]+=nextdx; pos[1]+=nextdy; pos[2]+=nextdz; pos[3]+=nextde;
 		Horizontal_Motor_Step(x, dx, y, dy, e, de, f/60.0)
 		Vertical_Motor_Step(z, dz, 1000)
+		dx, dy, dz, de, f = nextdx, nextdy, nextdz, nextde, nextf
 
 	elif words[0]=='G28':
 		 parse_line('G0 X0 Y0 Z0')  #Move to origin, no extruding
@@ -306,6 +324,9 @@ def parse_line(line):
 		#Temperature
 		for word in words:
 			if word[0]=='S':
+				Horizontal_Motor_Step(x, dx, y, dy, e, de, f/60.0)
+				Vertical_Motor_Step(z, dz, 1000)
+				dx, dy, dz, de = 0,0,0,0
 				TEMP=int(word[1:])
 				wait_for_temp()
 				print "I'm at temperature!"
@@ -411,7 +432,7 @@ abs_z_steps=0
 # 		GPIO.cleanup()
 # else:
 def print_file(gcfile):
-	global isPrinting, lineNum, totalLines, TEMP, pos
+	global isPrinting, lineNum, totalLines, TEMP, pos, nextdx, nextdy, nextdz, nextde, nextf, dx, dy, dz, de, f 
 	pos = [0,0,0,0]
 	isPrinting=True
 	#thread.start_new_thread(adjust, ())
@@ -436,6 +457,9 @@ def print_file(gcfile):
 	wiringpi2.digitalWrite(heatpin, 0)
 	wiringpi2.digitalWrite(fanpin, 0)
 	TEMP = 0
+	Horizontal_Motor_Step(x, nextdx, y, nextdy, e, 0, nextf/60.0) #Clear buffer
+	nextdx, nextdy, nextdz, nextde, nextf = 0,0,0,0,1200
+	dx, dy, dz, de, f  = 0,0,0,0,1200
 
 server = SimpleXMLRPCServer(("192.168.1.90", 8000))
 print "Listening on port 8000..."
