@@ -12,7 +12,7 @@ getinfoproxy = xmlrpclib.ServerProxy("http://192.168.1.90:8000/") #Use 2 proxies
 
 file_opt = options = {}
 options['defaultextension'] = '.txt'
-options['filetypes'] = [('all files', '.*'), ('gcode files', '.gcode')]
+options['filetypes'] = [('gcode files', '.gcode')]
 options['initialdir'] = '~'
 options['title'] = 'Choose file to upload'
 
@@ -41,9 +41,11 @@ def show_temp():
  				progress.set((data[1]*100)//data[2])
  				dt = time.time()-startTime
  				timeRemaining = dt*float(data[2])/data[1]-dt
- 				m,s = divmod(timeRemaining, 60)
- 				h,m = divmod(m, 60)
-				progtext.set("Line "+str(data[1])+"/"+str(data[2])+" "+str((data[1]*100)//data[2])+"%%  Time remaining: %d:%02d" % (h,m))
+ 				mr,sr = divmod(timeRemaining, 60)
+ 				hr,mr = divmod(mr, 60)
+ 				me,se = divmod(dt, 60)
+ 				he,me = divmod(me, 60)
+				progtext.set("Line "+str(data[1])+"/"+str(data[2])+" "+str((data[1]*100)//data[2])+"%%  Remaining: %d:%02d Elapsed: %d:%02d" % (hr,mr,he,me))
 			if (data[3]): #Are we heating?
 				templabel.configure(fg = "red")
 			else:
@@ -57,11 +59,11 @@ def set_temp():
 		print "Error"
 		
 def move_x(dir):
-	if not proxy.x_step(20*dir, 0.01):
+	if not proxy.x_step(20*dir, 50):
 		print "Error"
 	
 def move_y(dir):
-	if not proxy.y_step(20*dir, 0.01):
+	if not proxy.y_step(20*dir, 50):
 		print "Error"
 	
 def move_z(dir):
@@ -69,7 +71,7 @@ def move_z(dir):
 		print "Error"
 	
 def move_e(dir):
-	if not proxy.e_step(100*dir, 0.01):
+	if not proxy.e_step(100*dir, 2):
 		print "Error"
 	
 def upload_file():

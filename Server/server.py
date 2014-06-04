@@ -284,7 +284,7 @@ def parse_line(line):
 				nextf=float(word[1:])
 		if absolute:
 			nextdx-=pos[0]; nextdy-=pos[1]; nextdz-=pos[2]; nextde-=pos[3];
-
+		
 		pos[0]+=nextdx; pos[1]+=nextdy; pos[2]+=nextdz; pos[3]+=nextde;
 		Horizontal_Motor_Step(x, dx, y, dy, e, de, f/60.0)
 		Vertical_Motor_Step(z, dz, 1000)
