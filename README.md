@@ -11,6 +11,8 @@ Kenan Bitikofer
 piPrint is currently under heavy development.  It seems to be working fairly well at the moment, but is not considered stable.  If you just want to get a 3D Printer up and running, consider looking at other options at http://www.reprap.org.
 
 ## Documentation
+A video of piPrint in action is here: http://youtu.be/JW6yJvLF7Jk  It gives a general ideas of the capabilites and interface of the printer.
+
 Put the files contained in the server directory on the pi, then run
 
     sudo python server.py
