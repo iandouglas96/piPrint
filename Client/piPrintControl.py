@@ -7,12 +7,12 @@ import thread
 from os import path
 from socket import error as socket_error
 
-proxy = xmlrpclib.ServerProxy("http://192.168.1.90:8000/")
-getinfoproxy = xmlrpclib.ServerProxy("http://192.168.1.90:8000/") #Use 2 proxies, one for sending, one for getting
+proxy = xmlrpclib.ServerProxy("http://192.168.1.70:8000/")
+getinfoproxy = xmlrpclib.ServerProxy("http://192.168.1.70:8000/") #Use 2 proxies, one for sending, one for getting
 
 file_opt = options = {}
 options['defaultextension'] = '.txt'
-options['filetypes'] = [('gcode files', '.gcode')]
+options['filetypes'] = [('gcode files', '.gcode'), ('engraving files', '.ngc')]
 options['initialdir'] = '~'
 options['title'] = 'Choose file to upload'
 
@@ -20,6 +20,7 @@ filepath = "./"
 filename = "."
 
 startTime = 0
+dt = 0
 
 def get_path():
     global filepath
@@ -29,6 +30,7 @@ def get_path():
     pathtext.set(filename)
 
 def show_temp():
+	global dt
 	while True:
 		try:
 			data = getinfoproxy.get_info()
@@ -36,7 +38,9 @@ def show_temp():
 			timetext.set(time.strftime("%T"))
 			if (data[2] == 0):
 				progress.set(0)
-				progtext.set("Not Printing")
+				me,se = divmod(dt, 60)
+ 				he,me = divmod(me, 60)
+				progtext.set("Not Printing, Last Print: %d:%02d" % (he,me))
 			else:
  				progress.set((data[1]*100)//data[2])
  				dt = time.time()-startTime

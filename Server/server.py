@@ -4,7 +4,8 @@ from StepperMotor import Stepper
 import time
 #import serial
 import thread
-from math import *
+#from math import *
+from numpy import pi, sin, cos, sqrt, arccos, arcsin
 import TempSensor
 import xmlrpclib
 from SimpleXMLRPCServer import SimpleXMLRPCServer
@@ -36,6 +37,9 @@ ecalib=4*10000/195.0  #steps/mm(pulled extrusion)
 jerkG = 25.0 #mm/sec start speed, cannot be 0
 accel = 1000.0 #mm/sec/sec
 
+#Engraving TODO: read from GCODE
+eSpeed = 50 #mm/min
+
 #Internal settings
 zadjust=0
 temp=0
@@ -43,6 +47,7 @@ lineNum=0
 totalLines=0
 isHeating=False
 isPrinting=False
+engraving=False
 
 nextdx = 0
 nextdy = 0
@@ -55,6 +60,8 @@ dz = 0
 de = 0
 f = 1200.0
 dt0 = 1000
+x_pos = 0
+y_pos = 0
 
 #port = serial.Serial("/dev/ttyAMA0", baudrate=38400, timeout=3.0) #Open serial connection to ADC
 
@@ -92,7 +99,7 @@ def Vertical_Motor_Step(stepper3, dz, speed):
 	#global pos
 	dir3=-sign(dz)
 	dz=abs(dz)
-	for i in range(0, dz):
+	for i in range(0, int(dz)):
 		stepper3.move(dir3,1000000.0/speed);
 	#print pos
 	return 0;
@@ -206,18 +213,19 @@ def controlTemp():
 	global isHeating
 	#Prints ADC Val to terminal
 	while True:
-		adc = get_adc(0)
-		temp= TempSensor.getTemp(adc)
-		if temp > 0 and temp < 240: #Are we getting reasonable numbers?
-			if temp>TEMP:
-				isHeating = False
-				wiringpi2.digitalWrite(heatpin, 0)
+		if not engraving:
+			adc = get_adc(0)
+			temp= TempSensor.getTemp(adc)
+			if temp > 0 and temp < 240: #Are we getting reasonable numbers?
+				if temp>TEMP:
+					isHeating = False
+					wiringpi2.digitalWrite(heatpin, 0)
+				else:
+					isHeating = True
+					wiringpi2.digitalWrite(heatpin, 1)
 			else:
-				isHeating = True
-				wiringpi2.digitalWrite(heatpin, 1)
-		else:
-			wiringpi2.digitalWrite(heatpin, 0)
-			# print "Didn't receive response.  Killing heat."
+				wiringpi2.digitalWrite(heatpin, 0)
+				# print "Didn't receive response.  Killing heat."
 
 		time.sleep(1)
 
@@ -233,13 +241,13 @@ def get_info():
 	return [temp, lineNum, totalLines, isHeating]
 
 def parse_line(line):
-	global pos, f, absolute, TEMP, temp, nextdx, nextdy, nextdz, nextde, nextf, dx, dy, dz, de, f
+	global pos, f, absolute, TEMP, temp, nextdx, nextdy, nextdz, nextde, nextf, dx, dy, dz, de, f, x_pos, y_pos
 
 	words=line.split()
 	if len(words)==0:
 		1; #Blank line
-	elif words[0]=='G0':
-		#Fast move, no extrude
+	elif words[0]=='G0' or words[0]=='G00':
+		#Fast move, no extruder
 		if absolute:
 			nextdx,nextdy,nextdz=pos[0],pos[1],pos[2]
 		else:
@@ -247,51 +255,112 @@ def parse_line(line):
 
 		for word in words:
 			if word[0]=='X':
+				x_pos=float(word[1:])
 				nextdx=int(round(float(word[1:])*xcalib, 0))
 			if word[0]=='Y':
+				y_pos=float(word[1:])
 				nextdy=int(round(float(word[1:])*ycalib, 0))
 			if word[0]=='Z':
 				nextdz=int(round(float(word[1:])*zcalib, 0))
-			if word[0]=='F':
+			if word[0]=='F' and not engraving:
 				nextf=float(word[1:])
 		if absolute:
 			nextdx-=pos[0]; nextdy-=pos[1]; nextdz-=pos[2];
 
 		pos[0]+=nextdx; pos[1]+=nextdy; pos[2]+=nextdz
 		Horizontal_Motor_Step(x, dx, y, dy, e, 0, f/60.0)
-		Vertical_Motor_Step(z, dz, 1000)
+		if not engraving:
+			Vertical_Motor_Step(z, dz, 1000)
+		else:
+			wiringpi2.digitalWrite(heatpin,0)
+			nextf = 1000
 		dx, dy, dz, de, f = nextdx, nextdy, nextdz, 0, nextf
 
-	elif words[0]=='G1':
+	elif words[0]=='G1' or words[0]=='G01':
 		#Move while extruding
-
 		if absolute:
 			nextdx,nextdy,nextdz,nextde=pos[0],pos[1],pos[2],pos[3]
 		else:
 			nextdx,nextdy,nextdz,nextde=0 ,0 ,0 ,0
 		
-		T=0
 		for word in words:
 			if word[0]=='X':
+				x_pos=float(word[1:])
 				nextdx=int(round(float(word[1:])*xcalib, 0))
 			if word[0]=='Y':
+				y_pos=float(word[1:])
 				nextdy=int(round(float(word[1:])*ycalib, 0))
 			if word[0]=='Z':
 				nextdz=int(round(float(word[1:])*zcalib, 0))
 			if word[0]=='E':
 				nextde=int(round(float(word[1:])*ecalib, 0))
-			if word[0]=='F':
+			if word[0]=='F' and not engraving:
 				nextf=float(word[1:])
 		if absolute:
 			nextdx-=pos[0]; nextdy-=pos[1]; nextdz-=pos[2]; nextde-=pos[3];
-		
+
 		pos[0]+=nextdx; pos[1]+=nextdy; pos[2]+=nextdz; pos[3]+=nextde;
 		Horizontal_Motor_Step(x, dx, y, dy, e, de, f/60.0)
-		Vertical_Motor_Step(z, dz, 1000)
+		if not engraving:
+			Vertical_Motor_Step(z, dz, 1000)
+		else:
+			print "Laser on"
+			wiringpi2.digitalWrite(heatpin,1)
+			nextf = eSpeed
 		dx, dy, dz, de, f = nextdx, nextdy, nextdz, nextde, nextf
+	elif words[0]=='G02' or words[0]=='G03': #Only applies to engraving, shamelessly modified from from Daniel Chai (Xiang Zhai) laser engraver code at funofdiy.blogspot.com
+		old_x_pos = x_pos
+		old_y_pos = y_pos
+		for word in words:
+			if word[0]=='X':
+				x_pos=float(word[1:])
+			if word[0]=='Y':
+				y_pos=float(word[1:])
+			if word[0]=='I':
+				i_pos=float(word[1:])
+			if word[0]=='J':
+				j_pos=float(word[1:])
 
+		xcenter=old_x_pos+i_pos;   #center of the circle for interpolation
+		ycenter=old_y_pos+j_pos;
+	
+		Dx=x_pos-xcenter;
+		Dy=y_pos-ycenter;      #vector [Dx,Dy] points from the circle center to the new position
+	
+		r=sqrt(i_pos**2+j_pos**2);   # radius of the circle
+	
+		e1=[-i_pos,-j_pos]; #pointing from center to current position
+		if (words[0]=='G02'): #clockwise
+			e2=[e1[1],-e1[0]];      #perpendicular to e1. e2 and e1 forms x-y system (clockwise)
+		else:                   #counterclockwise
+			e2=[-e1[1],e1[0]];      #perpendicular to e1. e1 and e2 forms x-y system (counterclockwise)
+
+		#[Dx,Dy]=e1*cos(theta)+e2*sin(theta), theta is the open angle
+
+		costheta=(Dx*e1[0]+Dy*e1[1])/r**2;
+		sintheta=(Dx*e2[0]+Dy*e2[1])/r**2;        #theta is the angule spanned by the circular interpolation curve
+				
+		if costheta>1:  # there will always be some numerical errors! Make sure abs(costheta)<=1
+			costheta=1;
+		elif costheta<-1:
+			costheta=-1;
+
+		theta=arccos(costheta);
+		if sintheta<0:
+			theta=2.0*pi-theta;
+
+		no_step=int(round(r*theta/(1.0/xcalib)/5.0));   # number of point for the circular interpolation
+		for i in range(1,no_step+1):
+			tmp_theta=i*theta/no_step;
+			tmp_x_pos=xcenter+e1[0]*cos(tmp_theta)+e2[0]*sin(tmp_theta);
+			tmp_y_pos=ycenter+e1[1]*cos(tmp_theta)+e2[1]*sin(tmp_theta);
+			nextdx = int(round((tmp_x_pos*xcalib), 0))-pos[0]
+			nextdy = int(round((tmp_y_pos*ycalib), 0))-pos[1]
+			pos[0]+=nextdx; pos[1]+=nextdy;
+			Horizontal_Motor_Step(x, dx, y, dy, e, de, f/60.0)
+			dx, dy, dz, de, f = nextdx, nextdy, 0, 0, eSpeed
 	elif words[0]=='G28':
-		 parse_line('G0 X0 Y0 Z0')  #Move to origin, no extruding
+		parse_line('G0 X0 Y0 Z0')  #Move to origin, no extruding
 	elif words[0]=='G21':
 		1#Set to mm
 	elif words[0]=='G90':
@@ -432,10 +501,17 @@ abs_z_steps=0
 # 		GPIO.cleanup()
 # else:
 def print_file(gcfile):
-	global isPrinting, lineNum, totalLines, TEMP, pos, nextdx, nextdy, nextdz, nextde, nextf, dx, dy, dz, de, f 
+	global isPrinting, lineNum, totalLines, TEMP, pos, nextdx, nextdy, nextdz, nextde, nextf, dx, dy, dz, de, f , engraving
 	pos = [0,0,0,0]
 	isPrinting=True
 	#thread.start_new_thread(adjust, ())
+	if (gcfile.endswith('.ngc')):
+		engraving = True
+		wiringpi2.digitalWrite(heatpin,0)
+		f = 1000.0
+	else:
+		engraving = False
+	
 	lineNum = 1
 	totalLines=0
 	for line in open(gcfile,'r'):
@@ -445,6 +521,7 @@ def print_file(gcfile):
 	for line in open(gcfile,'r'):
 		if not isPrinting:
 			break
+		print line
 		parse_line(line)
 # 		print str(lineNum)+'/'+str(totalLines), str(100*lineNum/float(totalLines))+'%'
 # 		print 'Temp = '+str(temp)
@@ -458,10 +535,11 @@ def print_file(gcfile):
 	wiringpi2.digitalWrite(fanpin, 0)
 	TEMP = 0
 	Horizontal_Motor_Step(x, nextdx, y, nextdy, e, 0, nextf/60.0) #Clear buffer
+	engraving = False
 	nextdx, nextdy, nextdz, nextde, nextf = 0,0,0,0,1200
 	dx, dy, dz, de, f  = 0,0,0,0,1200
 
-server = SimpleXMLRPCServer(("192.168.1.90", 8000))
+server = SimpleXMLRPCServer(("192.168.1.70", 8000))
 print "Listening on port 8000..."
 server.register_function(x_step, "x_step")
 server.register_function(y_step, "y_step")
