@@ -1,3 +1,6 @@
+# NOTE:
+piPrint development ceased a while ago.  I no longer have the hardware that this code was built to run.  Consider the code unsupported and undeveloped, though feel free to still email me with questions.
+
 # piPrint (v0.3a)
 ## Run your 3D Printer with only a Raspberry Pi
 
